@@ -15,8 +15,9 @@ SteerControlType = car.CarParams.SteerControlType
 
 class CarInterface(CarInterfaceBase):
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
-    return CarControllerParams(CP).ACCEL_MIN, CarControllerParams(CP).ACCEL_MAX
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, frogpilot_toggles):
+    CCP = CarControllerParams(CP)
+    return CCP.ACCEL_MIN, CCP.ACCEL_MAX
 
   @staticmethod
   def _get_params(ret, candidate, fingerprint, car_fw, disable_openpilot_long, experimental_long, docs, params):
@@ -40,6 +41,9 @@ class CarInterface(CarInterfaceBase):
 
       ret.steerActuatorDelay = 0.12  # Default delay, Prius has larger delay
       ret.steerLimitTimer = 0.4
+
+      if 0x23 in fingerprint[0]:  # Detect if ZSS is present
+        ret.flags |= ToyotaFlags.ZSS.value
 
     ret.stoppingControl = False  # Toyota starts braking more when it thinks you want to stop
 
@@ -155,6 +159,9 @@ class CarInterface(CarInterfaceBase):
       tune.kiV = [3.6, 2.4, 1.5]
 
     if params.get_bool("FrogsGoMoosTweak"):
+      if ret.flags & ToyotaFlags.NEW_TOYOTA_TUNE or ret.flags & ToyotaFlags.RAISED_ACCEL_LIMIT:
+        tune.kiV = [0.3]
+
       ret.stoppingDecelRate = 0.1  # reach stopping target smoothly
       ret.vEgoStopping = 0.15
       ret.vEgoStarting = 0.15

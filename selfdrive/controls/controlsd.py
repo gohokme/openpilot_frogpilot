@@ -34,7 +34,7 @@ from openpilot.system.version import get_short_branch
 from selfdrive.road_speed_limiter import SpeedLimiter
 
 from openpilot.selfdrive.frogpilot.controls.lib.frogpilot_acceleration import get_max_allowed_accel
-from openpilot.selfdrive.frogpilot.frogpilot_variables import NON_DRIVING_GEARS, get_frogpilot_toggles
+from openpilot.selfdrive.frogpilot.frogpilot_variables import NON_DRIVING_GEARS, FrogPilotVariables
 
 SOFT_DISABLE_TIME = 3  # seconds
 LDW_MIN_SPEED = 31 * CV.MPH_TO_MS
@@ -82,6 +82,7 @@ class Controls:
 
     # Ensure the current branch is cached, otherwise the first iteration of controlsd lags
     self.branch = get_short_branch()
+    self.block_user = self.branch == "FrogPilot-Development" and self.params.get("DongleId", encoding='utf-8') != "FrogsGoMoo"
 
     # Setup sockets
     self.pm = messaging.PubMaster(['controlsState', 'carControl', 'onroadEvents', 'frogpilotCarControl'])
@@ -100,7 +101,7 @@ class Controls:
     if REPLAY:
       # no vipc in replay will make them ignored anyways
       ignore += ['roadCameraState', 'wideRoadCameraState']
-    if get_frogpilot_toggles(True).radarless_model:
+    if FrogPilotVariables.toggles.radarless_model:
       ignore += ['radarState']
     self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'liveLocationKalman',
@@ -173,7 +174,7 @@ class Controls:
 
     self.can_log_mono_time = 0
 
-    self.startup_event = get_startup_event(car_recognized, not self.CP.passive, len(self.CP.carFw) > 0)
+    self.startup_event = get_startup_event(car_recognized, not self.CP.passive, len(self.CP.carFw) > 0, self.block_user, FrogPilotVariables.toggles)
 
     if not sounds_available:
       self.events.add(EventName.soundsUnavailable, static=True)
@@ -190,7 +191,8 @@ class Controls:
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
     # FrogPilot variables
-    self.frogpilot_toggles = get_frogpilot_toggles(True)
+    self.frogpilot_toggles = FrogPilotVariables.toggles
+    FrogPilotVariables.update_frogpilot_params()
 
     self.params_memory = Params("/dev/shm/params")
 
@@ -199,13 +201,13 @@ class Controls:
     self.fcw_event_triggered = False
     self.no_entry_alert_triggered = False
     self.onroad_distance_pressed = False
+    self.radarless_model = self.frogpilot_toggles.radarless_model
     self.resume_pressed = False
     self.resume_previously_pressed = False
     self.steer_saturated_event_triggered = False
-
-    self.block_user = self.branch == "FrogPilot-Development" and self.params.get("DongleId", encoding='utf-8') != "FrogsGoMoo"
-    self.radarless_model = self.frogpilot_toggles.radarless_model
-    self.use_old_long = self.frogpilot_toggles.old_long_api
+    self.update_toggles = False
+    self.use_old_long = self.CP.carName == "hyundai" and not self.params.get_bool("NewLongAPI")
+    self.use_old_long |= self.CP.carName == "gm" and not self.params.get_bool("NewLongAPIGM")
 
     self.display_timer = 0
 
@@ -421,8 +423,7 @@ class Controls:
     planner_fcw = self.sm['longitudinalPlan'].fcw and self.enabled
     if (planner_fcw or model_fcw) and not (self.CP.notCar and self.joystick_mode):
       self.events.add(EventName.fcw)
-      if self.frogpilot_toggles.random_events:
-        self.fcw_event_triggered = True
+      self.fcw_event_triggered = True
 
     for m in messaging.drain_sock(self.log_sock, wait_for_one=False):
       try:
@@ -451,7 +452,7 @@ class Controls:
     self.events.add_from_msg(self.sm['frogpilotPlan'].frogpilotEvents)
 
     if self.block_user:
-      self.events.add(EventName.blockUser, static=True)
+      return EventName.blockUser
 
   def data_sample(self):
     """Receive data from sockets"""
@@ -585,8 +586,7 @@ class Controls:
       if self.events.contains(ET.ENABLE):
         if self.events.contains(ET.NO_ENTRY):
           self.current_alert_types.append(ET.NO_ENTRY)
-          if self.frogpilot_toggles.random_events:
-            self.no_entry_alert_triggered = True
+          self.no_entry_alert_triggered = True
 
         else:
           if self.events.contains(ET.PRE_ENABLE):
@@ -610,7 +610,7 @@ class Controls:
     # Update VehicleModel
     lp = self.sm['liveParameters']
     x = max(lp.stiffnessFactor, 0.1)
-    sr = max(self.frogpilot_toggles.steer_ratio if self.frogpilot_toggles.use_custom_steer_ratio else lp.steerRatio, 0.1)
+    sr = max(self.frogpilot_toggles.steer_ratio, 0.1) if self.frogpilot_toggles.use_custom_steer_ratio else max(lp.steerRatio, 0.1)
     self.VM.update_params(x, sr)
 
     # Update Torque Params
@@ -657,7 +657,7 @@ class Controls:
 
     if not self.joystick_mode:
       # accel PID loop
-      pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_helper.v_cruise_kph * CV.KPH_TO_MS)
+      pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_helper.v_cruise_kph * CV.KPH_TO_MS, self.frogpilot_toggles)
       if self.frogpilot_toggles.sport_plus:
         pid_accel_limits = (pid_accel_limits[0], get_max_allowed_accel(CS.vEgo))
 
@@ -665,7 +665,7 @@ class Controls:
         t_since_plan = (self.sm.frame - self.sm.recv_frame['longitudinalPlan']) * DT_CTRL
         actuators.accel = self.LoC.update_old_long(CC.longActive, CS, long_plan, pid_accel_limits, t_since_plan)
       else:
-        actuators.accel = self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop or self.sm['frogpilotPlan'].forcingStopLength == 0, pid_accel_limits)
+        actuators.accel = self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits)
 
       if len(long_plan.speeds):
         actuators.speed = long_plan.speeds[-1]
@@ -712,9 +712,8 @@ class Controls:
         good_speed = CS.vEgo > 5
         max_torque = abs(self.sm['carOutput'].actuatorsOutput.steer) > 0.99
         if undershooting and turning and good_speed and max_torque:
-          lac_log.active and self.events.add(EventName.goatSteerSaturated if self.frogpilot_toggles.goat_scream_alert else EventName.steerSaturated)
-          if self.frogpilot_toggles.random_events:
-            self.steer_saturated_event_triggered = True
+          lac_log.active and self.events.add(EventName.goatSteerSaturated if self.frogpilot_toggles.goat_scream else EventName.steerSaturated)
+          self.steer_saturated_event_triggered = True
         else:
           self.steer_saturated_event_triggered = False
       elif lac_log.saturated:
@@ -770,7 +769,7 @@ class Controls:
     self.always_on_lateral_active &= not (CS.brakePressed and CS.vEgo < self.frogpilot_toggles.always_on_lateral_pause_speed) or CS.standstill
     self.always_on_lateral_active = bool(self.always_on_lateral_active)
 
-    if self.frogpilot_toggles.conditional_experimental_mode or self.frogpilot_toggles.slc_fallback_experimental_mode:
+    if self.frogpilot_toggles.conditional_experimental_mode or self.frogpilot_toggles.slc_fallback_experimental:
       self.experimental_mode = self.sm['frogpilotPlan'].experimentalMode
 
     if any(be.pressed and be.type == FrogPilotButtonType.lkas for be in CS.buttonEvents):
@@ -854,7 +853,7 @@ class Controls:
     if self.enabled:
       clear_event_types.add(ET.NO_ENTRY)
 
-    alerts = self.events.create_alerts(self.current_alert_types, [self.CP, CS, self.sm, self.is_metric, self.soft_disable_timer, self.frogpilot_toggles])
+    alerts = self.events.create_alerts(self.current_alert_types, [self.CP, CS, self.sm, self.is_metric, self.soft_disable_timer])
     self.AM.add_many(self.sm.frame, alerts)
     current_alert = self.AM.process_alerts(self.sm.frame, clear_event_types)
     if current_alert:
@@ -981,8 +980,11 @@ class Controls:
       time.sleep(0.1)
 
       # Update FrogPilot parameters
-      if self.sm['frogpilotPlan'].togglesUpdated:
-        self.frogpilot_toggles = get_frogpilot_toggles()
+      if FrogPilotVariables.toggles_updated:
+        self.update_toggles = True
+      elif self.update_toggles:
+        FrogPilotVariables.update_frogpilot_params()
+        self.update_toggles = False
 
   def controlsd_thread(self):
     e = threading.Event()

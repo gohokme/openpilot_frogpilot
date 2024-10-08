@@ -12,7 +12,7 @@ public:
   explicit ScreenRecorder(QWidget *parent = 0);
   ~ScreenRecorder() override;
 
-  void updateScreen(double fps, bool started);
+  void updateScreen();
 
 private:
   void closeEncoder();
@@ -39,5 +39,5 @@ private:
 
   std::unique_ptr<OmxEncoder> encoder;
 
-  std::unique_ptr<uint8_t[]> rgbScaleBuffer;
+  std::vector<uint8_t> rgbScaleBuffer;
 };

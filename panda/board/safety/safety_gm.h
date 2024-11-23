@@ -192,7 +192,7 @@ static void gm_rx_hook(const CANPacket_t *to_push) {
 
     if (addr == 0xBD) {
       // 1. 리젠 브레이크 상태 확인
-      bool regen_braking = (GET_BYTE(to_push, 0) >> 4) != 0U;
+      regen_braking = (GET_BYTE(to_push, 0) >> 4) != 0U;
       // 2. 롱컨트롤 허용 여부 확인
       if (!get_longitudinal_allowed()) {
         //tx = false;

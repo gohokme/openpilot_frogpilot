@@ -62,7 +62,7 @@ class CarController(CarControllerBase):
     if not long_active: return 0., False
     press_regen_paddle = False
 
-    if accel < -0.35:
+    if accel < -0.15:
       press_regen_paddle = True
     else:
       # pedaloffset = 0.24

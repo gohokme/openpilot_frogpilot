@@ -59,7 +59,8 @@ class CarController(CarControllerBase):
 
   @staticmethod
   def calc_pedal_command(accel: float, long_active: bool, car_velocity) -> Tuple[float, bool]:
-    if not long_active: return 0.
+    if not long_active: return 0., False
+    press_regen_paddle = False
 
     if accel < -0.35:
       press_regen_paddle = True

@@ -64,6 +64,7 @@ class CarController(CarControllerBase):
 
     if accel < -0.15:
       press_regen_paddle = True
+      pedal_gas = 0
     else:
       # pedaloffset = 0.24
       pedaloffset = interp(car_velocity, [0., 3, 6, 30], [0.10, 0.175, 0.240, 0.240])

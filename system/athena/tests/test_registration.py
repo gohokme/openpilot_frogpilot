@@ -72,3 +72,13 @@ class TestRegistration:
     assert m.call_count == 1
     assert dongle == UNREGISTERED_DONGLE_ID
     assert self.params.get("DongleId", encoding='utf-8') == dongle
+
+  def test_no_imei(self, mocker):
+    self._generate_keys()
+    mocker.patch("openpilot.system.athena.registration.HARDWARE.get_imei", side_effect=Exception)
+    mocker.patch("time.sleep")
+    mocker.patch("time.monotonic", side_effect=[0, 0, 20])
+
+    dongle = register()
+    assert dongle == UNREGISTERED_DONGLE_ID
+    assert self.params.get("DongleId", encoding='utf-8') == dongle

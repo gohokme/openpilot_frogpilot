@@ -171,6 +171,8 @@ class Tici(HardwareBase):
 
   def get_modem(self):
     objects = self.mm.GetManagedObjects(dbus_interface="org.freedesktop.DBus.ObjectManager", timeout=TIMEOUT)
+    if not objects:
+      return None
     modem_path = list(objects.keys())[0]
     return self.bus.get_object(MM, modem_path)
 
@@ -182,8 +184,18 @@ class Tici(HardwareBase):
     wwan_path = self.nm.GetDeviceByIpIface('wwan0', dbus_interface=NM, timeout=TIMEOUT)
     return self.bus.get_object(NM, wwan_path)
 
+"""
   def get_sim_info(self):
     modem = self.get_modem()
+    if modem is None:
+      return {
+        'sim_id': '',
+        'mcc_mnc': None,
+        'network_type': ["Unknown"],
+        'sim_state': ["ABSENT"],
+        'data_connected': False
+      }
+
     sim_path = modem.Get(MM_MODEM, 'Sim', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
 
     if sim_path == "/":
@@ -208,7 +220,12 @@ class Tici(HardwareBase):
     if slot != 0:
       return ""
 
-    return str(self.get_modem().Get(MM_MODEM, 'EquipmentIdentifier', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
+    modem = self.get_modem()
+    if modem is None:
+      return ""
+
+    return str(modem.Get(MM_MODEM, 'EquipmentIdentifier', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
+"""
 
   def get_network_info(self):
     try:
@@ -465,6 +482,9 @@ class Tici(HardwareBase):
     sim_id = self.get_sim_info().get('sim_id', '')
 
     modem = self.get_modem()
+    if modem is None:
+      return
+
     try:
       manufacturer = str(modem.Get(MM_MODEM, 'Manufacturer', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
     except Exception:

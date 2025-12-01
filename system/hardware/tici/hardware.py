@@ -182,7 +182,6 @@ class Tici(HardwareBase):
     wwan_path = self.nm.GetDeviceByIpIface('wwan0', dbus_interface=NM, timeout=TIMEOUT)
     return self.bus.get_object(NM, wwan_path)
 
-"""
   def get_sim_info(self):
     modem = self.get_modem()
     sim_path = modem.Get(MM_MODEM, 'Sim', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
@@ -210,7 +209,6 @@ class Tici(HardwareBase):
       return ""
 
     return str(self.get_modem().Get(MM_MODEM, 'EquipmentIdentifier', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
-"""
 
   def get_network_info(self):
     try:

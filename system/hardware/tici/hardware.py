@@ -28,20 +28,22 @@ MM_MODEM = MM + ".Modem"
 MM_MODEM_SIMPLE = MM + ".Modem.Simple"
 MM_SIM = MM + ".Sim"
 
+
 class MM_MODEM_STATE(IntEnum):
-  FAILED        = -1
-  UNKNOWN       = 0
-  INITIALIZING  = 1
-  LOCKED        = 2
-  DISABLED      = 3
-  DISABLING     = 4
-  ENABLING      = 5
-  ENABLED       = 6
-  SEARCHING     = 7
-  REGISTERED    = 8
+  FAILED = -1
+  UNKNOWN = 0
+  INITIALIZING = 1
+  LOCKED = 2
+  DISABLED = 3
+  DISABLING = 4
+  ENABLING = 5
+  ENABLED = 6
+  SEARCHING = 7
+  REGISTERED = 8
   DISCONNECTING = 9
-  CONNECTING    = 10
-  CONNECTED     = 11
+  CONNECTING = 10
+  CONNECTED = 11
+
 
 class NMMetered(IntEnum):
   NM_METERED_UNKNOWN = 0
@@ -49,6 +51,7 @@ class NMMetered(IntEnum):
   NM_METERED_NO = 2
   NM_METERED_GUESS_YES = 3
   NM_METERED_GUESS_NO = 4
+
 
 TIMEOUT = 0.1
 REFRESH_RATE_MS = 1000
@@ -74,11 +77,13 @@ def sudo_write(val, path):
       # fallback for debugfs files
       os.system(f"sudo su -c 'echo {val} > {path}'")
 
+
 def sudo_read(path: str) -> str:
   try:
     return subprocess.check_output(f"sudo cat {path}", shell=True, encoding='utf8')
   except Exception:
     return ""
+
 
 def affine_irq(val, action):
   irqs = get_irqs_for_action(action)
@@ -89,6 +94,7 @@ def affine_irq(val, action):
   for i in irqs:
     sudo_write(str(val), f"/proc/irq/{i}/smp_affinity_list")
 
+
 @lru_cache
 def get_device_type():
   # lru_cache and cache can cause memory leaks when used in classes
@@ -96,17 +102,19 @@ def get_device_type():
     model = f.read().strip('\x00')
   return model.split('comma ')[-1]
 
+
 class Tici(HardwareBase):
   @cached_property
   def bus(self):
     import dbus
+
     return dbus.SystemBus()
 
   @cached_property
   def nm(self):
     return self.bus.get_object(NM, '/org/freedesktop/NetworkManager')
 
-  @property # this should not be cached, in case the modemmanager restarts
+  @property  # this should not be cached, in case the modemmanager restarts
   def mm(self):
     return self.bus.get_object(MM, '/org/freedesktop/ModemManager1')
 
@@ -184,28 +192,15 @@ class Tici(HardwareBase):
     wwan_path = self.nm.GetDeviceByIpIface('wwan0', dbus_interface=NM, timeout=TIMEOUT)
     return self.bus.get_object(NM, wwan_path)
 
-"""
   def get_sim_info(self):
     modem = self.get_modem()
     if modem is None:
-      return {
-        'sim_id': '',
-        'mcc_mnc': None,
-        'network_type': ["Unknown"],
-        'sim_state': ["ABSENT"],
-        'data_connected': False
-      }
+      return {'sim_id': '', 'mcc_mnc': None, 'network_type': ["Unknown"], 'sim_state': ["ABSENT"], 'data_connected': False}
 
     sim_path = modem.Get(MM_MODEM, 'Sim', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
 
     if sim_path == "/":
-      return {
-        'sim_id': '',
-        'mcc_mnc': None,
-        'network_type': ["Unknown"],
-        'sim_state': ["ABSENT"],
-        'data_connected': False
-      }
+      return {'sim_id': '', 'mcc_mnc': None, 'network_type': ["Unknown"], 'sim_state': ["ABSENT"], 'data_connected': False}
     else:
       sim = self.bus.get_object(MM, sim_path)
       return {
@@ -225,7 +220,6 @@ class Tici(HardwareBase):
       return ""
 
     return str(modem.Get(MM_MODEM, 'EquipmentIdentifier', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
-"""
 
   def get_network_info(self):
     try:
@@ -246,14 +240,14 @@ class Tici(HardwareBase):
 
       technology, operator, band, channel = info
 
-      return({
+      return {
         'technology': technology,
         'operator': operator,
         'band': band,
         'channel': int(channel),
         'extra': extra,
         'state': state,
-      })
+      }
     else:
       return None
 
@@ -326,7 +320,7 @@ class Tici(HardwareBase):
     )
     try:
       modem = self.get_modem()
-      return { fn: str(modem.Command(f'AT+QNVFR="{fn}"', math.ceil(timeout), dbus_interface=MM_MODEM, timeout=timeout)) for fn in files}
+      return {fn: str(modem.Command(f'AT+QNVFR="{fn}"', math.ceil(timeout), dbus_interface=MM_MODEM, timeout=timeout)) for fn in files}
     except Exception:
       return None
 
@@ -350,28 +344,29 @@ class Tici(HardwareBase):
     return ret
 
   def get_current_power_draw(self):
-    return (self.read_param_file("/sys/class/hwmon/hwmon1/power1_input", int) / 1e6)
+    return self.read_param_file("/sys/class/hwmon/hwmon1/power1_input", int) / 1e6
 
   def get_som_power_draw(self):
-    return (self.read_param_file("/sys/class/power_supply/bms/voltage_now", int) * self.read_param_file("/sys/class/power_supply/bms/current_now", int) / 1e12)
+    return self.read_param_file("/sys/class/power_supply/bms/voltage_now", int) * self.read_param_file("/sys/class/power_supply/bms/current_now", int) / 1e12
 
   def shutdown(self):
     os.system("sudo poweroff")
 
   def get_thermal_config(self):
-    return ThermalConfig(cpu=(["cpu%d-silver-usr" % i for i in range(4)] +
-                              ["cpu%d-gold-usr" % i for i in range(4)], 1000),
-                         gpu=(("gpu0-usr", "gpu1-usr"), 1000),
-                         mem=("ddr-usr", 1000),
-                         bat=(None, 1),
-                         pmic=(("pm8998_tz", "pm8005_tz"), 1000))
+    return ThermalConfig(
+      cpu=(["cpu%d-silver-usr" % i for i in range(4)] + ["cpu%d-gold-usr" % i for i in range(4)], 1000),
+      gpu=(("gpu0-usr", "gpu1-usr"), 1000),
+      mem=("ddr-usr", 1000),
+      bat=(None, 1),
+      pmic=(("pm8998_tz", "pm8005_tz"), 1000),
+    )
 
   def set_screen_brightness(self, percentage):
     try:
       with open("/sys/class/backlight/panel0-backlight/max_brightness") as f:
         max_brightness = float(f.read().strip())
 
-      val = int(percentage * (max_brightness / 100.))
+      val = int(percentage * (max_brightness / 100.0))
       with open("/sys/class/backlight/panel0-backlight/brightness", "w") as f:
         f.write(str(val))
     except Exception:
@@ -383,7 +378,7 @@ class Tici(HardwareBase):
         max_brightness = float(f.read().strip())
 
       with open("/sys/class/backlight/panel0-backlight/brightness") as f:
-        return int(float(f.read()) / (max_brightness / 100.))
+        return int(float(f.read()) / (max_brightness / 100.0))
     except Exception:
       return 0
 
@@ -442,7 +437,7 @@ class Tici(HardwareBase):
     sudo_write("f", "/proc/irq/default_smp_affinity")
 
     # move these off the default core
-    affine_irq(1, "msm_drm")   # display
+    affine_irq(1, "msm_drm")  # display
     affine_irq(1, "msm_vidc")  # encoders
     affine_irq(1, "i2c_geni")  # sensors
 
@@ -467,7 +462,7 @@ class Tici(HardwareBase):
     sudo_write("Y", "/sys/kernel/debug/msm_vidc/disable_thermal_mitigation")
 
     # pandad core
-    affine_irq(3, "spi_geni")         # SPI
+    affine_irq(3, "spi_geni")  # SPI
     if "tici" in self.get_device_type():
       affine_irq(3, "xhci-hcd:usb3")  # aux panda USB (or potentially anything else on USB)
       affine_irq(3, "xhci-hcd:usb1")  # internal panda USB (also modem)
@@ -495,7 +490,6 @@ class Tici(HardwareBase):
       cmds += [
         # use sim slot
         'AT^SIMSWAP=1',
-
         # ethernet config
         'AT$QCPCFG=usbNet,0',
         'AT$QCNETDEVCTL=3,1',
@@ -525,7 +519,7 @@ class Tici(HardwareBase):
     # eSIM prime
     if sim_id.startswith('8985235'):
       dest = "/etc/NetworkManager/system-connections/esim.nmconnection"
-      with open(Path(__file__).parent/'esim.nmconnection') as f, tempfile.NamedTemporaryFile(mode='w') as tf:
+      with open(Path(__file__).parent / 'esim.nmconnection') as f, tempfile.NamedTemporaryFile(mode='w') as tf:
         dat = f.read()
         dat = dat.replace("sim-id=", f"sim-id={sim_id}")
         tf.write(dat)
@@ -551,12 +545,14 @@ class Tici(HardwareBase):
       if 'LTE' in extra:
         extra = extra.split(',')
         try:
-          r['lte'] = [{
-            "mcc": int(extra[3]),
-            "mnc": int(extra[4]),
-            "cid": int(extra[5], 16),
-            "nmr": [{"pci": int(extra[6]), "earfcn": int(extra[7])}],
-          }]
+          r['lte'] = [
+            {
+              "mcc": int(extra[3]),
+              "mnc": int(extra[4]),
+              "cid": int(extra[5], 16),
+              "nmr": [{"pci": int(extra[6]), "earfcn": int(extra[7])}],
+            }
+          ]
         except (ValueError, IndexError):
           pass
 
@@ -602,9 +598,10 @@ class Tici(HardwareBase):
   def booted(self):
     # this normally boots within 8s, but on rare occasions takes 30+s
     encoder_state = sudo_read("/sys/kernel/debug/msm_vidc/core0/info")
-    if "Core state: 0" in encoder_state and (time.monotonic() < 60*2):
+    if "Core state: 0" in encoder_state and (time.monotonic() < 60 * 2):
       return False
     return True
+
 
 if __name__ == "__main__":
   t = Tici()
